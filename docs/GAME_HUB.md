@@ -49,39 +49,56 @@ node hub/hub-service/dist/index-rollup.cjs --self https://hub.awizard.dev --dir 
 Put it behind TLS. The hub never sees keys and never signs; it only matches
 players and relays frames.
 
-## Building the client
+## Building the client and hub
 
-Build upstream `front-end` at the pinned commit (`pnpm run bundle`, see
-upstream `DEVELOPMENT.md`; it needs the WASM build first) and serve the
-output as static files at `VITE_GAME_CLIENT_URL`.
+We don't run the stock client: `game-client/` carries one patch against the
+pinned commit, and `game-client/build.sh` applies it and runs upstream's
+deploy build (WASM, player app, hub):
 
-## Two client changes we have to carry (not done yet)
+```bash
+cd game-client
+./build.sh            # clone at 76f0fb8c, apply patches/, run tools/build-deploy.sh
+```
 
-The stock client has one gap and one blocker:
+It refuses to build if its commit differs from `CHIA_GAMING_COMMIT` in
+`src/lib/gameHub.ts`. Outputs land in `game-client/.build/chia-gaming/`:
+`deploy_player_app/*.tgz` (static files for `VITE_GAME_CLIENT_URL`) and
+`deploy_hub/*.tgz` (hub frontend + service for the BOW hub). The client host
+must not send `X-Frame-Options` or a `frame-ancestors` that excludes The
+Nightspire.
 
-1. **`?hub=` preselect (gap, web and Discord).** The Nightspire passes the
-   chosen hub as `?hub=<origin>`. The stock client ignores it and opens on the
-   hub the player last used, so for now players pick the hub again inside the
-   client. Patch: on boot, if `hub` is a valid origin, call `connectToHub(hub)`.
-2. **Hub base paths (blocker for Discord).** The stock client treats a hub as
-   a bare origin: it loads the lobby from `new URL('/', origin)` and opens
-   `/ws/hub` and `/ws/game` at the root. Inside Discord, a hub is only
-   reachable through a path mapping such as
-   `https://<app>.discordsays.com/hub/bow/…`, and the root of that origin is
-   The Nightspire. Patch: accept a hub base URL with a path, and resolve the
-   lobby, `ws/hub` and `ws/game` relative to it. The same change helps anyone
-   hosting a hub under a path, so it's a reasonable upstream PR.
+## The client patch (`game-client/patches/0001-…`)
 
-Until (2) lands, the Discord build lists the hubs but the embedded client
-can't reach them. On the web, the stock client should work embedded, but this
-hasn't been tested yet: the Games tab was checked against a stand-in page,
-not a real client build. The client host must not send `X-Frame-Options` or a
-`frame-ancestors` that excludes The Nightspire.
+1. **Hubs under a path.** The stock client treats a hub as a bare origin
+   (lobby at `/`, `/ws/hub` and `/ws/game` at the root), which can't work
+   behind a Discord URL mapping. With the patch, a hub URL may carry a path,
+   e.g. `https://<app>.discordsays.com/hub/bow`, and the lobby page and both
+   sockets resolve under it. Root hubs behave exactly as before: same
+   canonical URL, same session credential (pinned by a test). Two hubs on one
+   origin get different sessions. `build-meta.json` and `basePath` became
+   page-relative, so one hub deploy serves both `hub.awizard.dev/` and the
+   Discord mapping.
+2. **`?hub=` prefills the hub picker.** The Nightspire passes the chosen hub
+   as `?hub=<url>`. The client fills it into its hub picker, and the player
+   presses Connect next to upstream's hub warning. A link never connects a
+   player on its own, because the hub renders its own UI inside the client.
+   If the player is already connected to a saved hub, the client reconnects
+   to that one; `?hub=` is used the next time the picker shows.
 
-The client's WalletConnect relay also needs the same treatment inside Discord
-that `index.html` gives The Nightspire: a `/walletconnect` mapping and a
-WebSocket rewrite in the client's own page. We host the client build, so we
-can add that script to its `index.html`.
+Checks: front-end jest suite (1,350 tests; only `sha256bytes` fails, as it does
+upstream without a WASM build) and `game-client/e2e/run.sh`, which puts the
+real lobby and the client's real relay connection behind a proxy that maps
+`/hub/bow/*` with the prefix stripped, matches two players, and confirms the
+hub delivers `advisory_start` over `/hub/bow/ws/game`. The same run at a hub
+root passes too. Not yet tested: a full game in the WASM client, and real
+Discord (the proxy only imitates its URL mappings).
+
+The patch is general (any hub behind a reverse proxy benefits), so it's a
+candidate for an upstream PR to Chia-Network/chia-gaming.
+
+Still open for Discord: the client's WalletConnect relay needs the same
+treatment `index.html` gives The Nightspire (a `/walletconnect` mapping and a
+WebSocket rewrite in the client's own page).
 
 ## Discord Developer Portal URL mappings
 

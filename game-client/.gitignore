@@ -1,0 +1,6 @@
+.build/
+e2e/*.png
+e2e/*.log
+e2e/relay-driver.cjs
+e2e/stage/
+e2e/service.cjs

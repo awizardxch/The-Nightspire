@@ -108,8 +108,9 @@ export function hubReachable(hub: HubInfo, inDiscord: boolean): boolean {
  * can't be loaded here (no client configured, or the hub has no Discord
  * mapping while we're inside Discord).
  *
- * The hub goes in `?hub=`. The stock client ignores it and opens on the hub
- * the player last used; our client build reads it (docs/GAME_HUB.md).
+ * The hub goes in `?hub=`. Our client build (game-client/) prefills its hub
+ * picker with it; the player confirms. Inside Discord the hub URL carries the
+ * mapping path, which the patched client resolves its lobby and sockets under.
  */
 export function gameClientSrc(hub: HubInfo, inDiscord: boolean): string | null {
   if (inDiscord) {

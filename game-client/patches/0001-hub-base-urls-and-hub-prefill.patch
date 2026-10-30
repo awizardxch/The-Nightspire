@@ -1,0 +1,594 @@
+From 73bcd0c4d95613afcedef8280bbb615d10cb9283 Mon Sep 17 00:00:00 2001
+From: awizardxch <awizard.eth@gmail.com>
+Date: Fri, 30 Oct 2026 23:32:56 +0000
+Subject: [PATCH] Support hubs under a path prefix; prefill the hub picker from
+ ?hub=
+
+A hub may now be served under a path (https://host.example/hub/a), as
+behind a reverse proxy or an embedding host that maps one path per server,
+such as a Discord Activity URL mapping.
+
+- New front-end/src/services/hubUrl.ts: canonicalHubUrl (a root hub stays
+  its bare origin, so existing session credentials are unchanged; a path
+  hub keeps its path) and hubResourceUrl.
+- The lobby iframe and /ws/game resolve under the hub URL. Session
+  credentials derive from the hub URL, so two hubs on one origin get
+  different sessions. The hub picker keeps the path.
+- hub-frontend resolves ws/hub against its own page URL.
+- build-meta.json is fetched page-relative and basePath is relative
+  (app/<nonce>/), so the same stage serves at a root or under a prefix.
+  isStaleDeploy, verify-stage and verify-deploy-archives follow.
+- ?hub=<url> prefills the hub picker. It never connects on its own: a
+  link must not be able to put a player on a hub.
+
+Tests: hub_url.test.ts pins the pre-change credentials for root hubs;
+picker, credential and deployFreshness tests cover paths. An end-to-end
+run behind a prefix-stripping proxy matched two players and delivered
+advisory_start over /hub/bow/ws/game; the same run at a hub root passed.
+---
+ front-end/public/index.html                   |  2 +-
+ front-end/src/components/HubPicker.tsx        |  9 ++-
+ front-end/src/components/Shell.tsx            | 16 ++++-
+ front-end/src/lib/deployFreshness.ts          | 11 ++-
+ .../src/lib/tests/deployFreshness.test.ts     | 34 +++++++++-
+ .../src/lib/tests/hub_auto_join.test.tsx      |  2 +-
+ .../lib/tests/hub_iframe_credentials.test.ts  | 11 +--
+ .../src/lib/tests/hub_picker_url.test.ts      | 14 +++-
+ front-end/src/lib/tests/hub_url.test.ts       | 68 +++++++++++++++++++
+ front-end/src/services/HubConnection.ts       |  6 +-
+ .../src/services/hubSessionCredential.ts      | 14 ++--
+ front-end/src/services/hubUrl.ts              | 26 +++++++
+ hub/hub-frontend/public/index.html            |  2 +-
+ hub/hub-frontend/src/hub.tsx                  |  7 +-
+ hub/hub-frontend/src/useHubSocket.ts          |  8 +--
+ tools/build-deploy.sh                         |  5 +-
+ tools/verify-deploy-archives.mjs              |  4 +-
+ tools/verify-stage.mjs                        |  3 +-
+ 18 files changed, 194 insertions(+), 48 deletions(-)
+ create mode 100644 front-end/src/lib/tests/hub_url.test.ts
+ create mode 100644 front-end/src/services/hubUrl.ts
+
+diff --git a/front-end/public/index.html b/front-end/public/index.html
+index aea9f88..2c22f98 100644
+--- a/front-end/public/index.html
++++ b/front-end/public/index.html
+@@ -21,7 +21,7 @@
+           return;
+         }
+ 
+-        fetch('/build-meta.json')
++        fetch('build-meta.json')
+           .then(function (r) {
+             return r.json();
+           })
+diff --git a/front-end/src/components/HubPicker.tsx b/front-end/src/components/HubPicker.tsx
+index 682973c..981fd60 100644
+--- a/front-end/src/components/HubPicker.tsx
++++ b/front-end/src/components/HubPicker.tsx
+@@ -1,5 +1,6 @@
+ import { useState, useCallback } from 'react';
+ import { Button } from './button';
++import { canonicalHubUrl } from '../services/hubUrl';
+ 
+ const DEV_HUB = 'http://localhost:3003';
+ 
+@@ -15,7 +16,7 @@ export function parseHubUrl(raw: string): string | null {
+   try {
+     const url = new URL(/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
+     if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+-    return url.origin;
++    return canonicalHubUrl(url.toString());
+   } catch {
+     return null;
+   }
+@@ -45,10 +46,12 @@ function insecureHubWarning(raw: string): string | null {
+ interface HubPickerProps {
+   onConnect: (origin: string) => void;
+   connectionError?: string | null;
++  /** Prefills the address field; the player still chooses to connect. */
++  initialUrl?: string;
+ }
+ 
+-export function HubPicker({ onConnect, connectionError }: HubPickerProps) {
+-  const [customUrl, setCustomUrl] = useState('');
++export function HubPicker({ onConnect, connectionError, initialUrl = '' }: HubPickerProps) {
++  const [customUrl, setCustomUrl] = useState(initialUrl);
+   const [error, setError] = useState('');
+   const insecureWarning = insecureHubWarning(customUrl);
+ 
+diff --git a/front-end/src/components/Shell.tsx b/front-end/src/components/Shell.tsx
+index f21f44e..81f4d1f 100644
+--- a/front-end/src/components/Shell.tsx
++++ b/front-end/src/components/Shell.tsx
+@@ -40,6 +40,7 @@ import {
+ } from '../types/ChiaGaming';
+ import { HubConnection, AdvisoryStartParams } from '../services/HubConnection';
+ import { deriveHubSessionId } from '../services/hubSessionCredential';
++import { hubResourceUrl } from '../services/hubUrl';
+ import { installHubIframeAuthentication } from '../services/hubIframeAuthentication';
+ import { HubIframe } from './HubIframe';
+ import {
+@@ -146,7 +147,7 @@ import { isElectronDistribution } from '../util/distribution';
+ import { hubTrustError, requestHubTrust } from '../util/hubTrust';
+ import { Button } from './button';
+ 
+-import { HubPicker } from './HubPicker';
++import { HubPicker, parseHubUrl } from './HubPicker';
+ 
+ type TabId = 'wallet' | 'hub' | 'game' | 'history' | 'log';
+ 
+@@ -1885,6 +1886,11 @@ const Shell = () => {
+   ]);
+ 
+   const [hubOrigin, setHubOrigin] = useState<string | null>(null);
++  // A hub suggested by the embedding page (?hub=...). It only prefills the
++  // hub picker: a link must not be able to connect a player to a hub.
++  const [suggestedHub] = useState(
++    () => parseHubUrl(new URLSearchParams(window.location.search).get('hub') ?? '') ?? undefined,
++  );
+   const [hubConnectionError, setHubConnectionError] = useState<string | null>(null);
+   const hubConnectAttemptRef = useRef(0);
+   const invalidateHubConnectAttempts = useCallback(() => {
+@@ -1917,7 +1923,7 @@ const Shell = () => {
+ 
+       setHubOrigin(origin);
+       storageRepository.updatePreference({ key: 'hubUrl', value: origin });
+-      setIframeUrl(new URL('/', origin).toString());
++      setIframeUrl(hubResourceUrl(origin, './').toString());
+ 
+       setHubLiveness('reconnecting');
+ 
+@@ -4215,7 +4221,11 @@ const Shell = () => {
+                 <HubIframe iframeUrl={iframeUrl} />
+               </>
+             ) : (
+-              <HubPicker onConnect={requestHubConnect} connectionError={hubConnectionError} />
++              <HubPicker
++                onConnect={requestHubConnect}
++                connectionError={hubConnectionError}
++                initialUrl={suggestedHub}
++              />
+             )}
+           </div>
+ 
+diff --git a/front-end/src/lib/deployFreshness.ts b/front-end/src/lib/deployFreshness.ts
+index 5d78036..a661897 100644
+--- a/front-end/src/lib/deployFreshness.ts
++++ b/front-end/src/lib/deployFreshness.ts
+@@ -63,20 +63,25 @@ export function resolveDeployAssetUrl(
+ }
+ 
+ /**
+- * True when `/build-meta.json` points at a different nonce tree than this tab.
++ * True when `build-meta.json` points at a different nonce tree than this tab.
+  * Used when a nonce-scoped asset 404s after a redeploy wiped the old files.
++ *
++ * build-meta.json and its basePath are relative to the page (`pageUrl`), not
++ * to the `<base>` the page installed, so the app can be served under a path.
+  */
+ export async function isStaleDeploy(
+   fetchImpl: typeof fetch = fetch.bind(globalThis),
+   currentBase: string | null = pageBasePath(),
++  pageUrl?: string,
+ ): Promise<boolean> {
+   if (currentBase === null) return false;
+   try {
+-    const resp = await fetchImpl('/build-meta.json', { cache: 'no-store' });
++    const page = pageUrl ?? window.location.href;
++    const resp = await fetchImpl(new URL('build-meta.json', page).href, { cache: 'no-store' });
+     if (!resp.ok) return false;
+     const meta = (await resp.json()) as { basePath?: unknown };
+     if (typeof meta.basePath !== 'string') return false;
+-    return basePathKey(meta.basePath) !== basePathKey(currentBase);
++    return basePathKey(new URL(meta.basePath, page).href) !== basePathKey(currentBase);
+   } catch {
+     return false;
+   }
+diff --git a/front-end/src/lib/tests/deployFreshness.test.ts b/front-end/src/lib/tests/deployFreshness.test.ts
+index 0271641..7ae210f 100644
+--- a/front-end/src/lib/tests/deployFreshness.test.ts
++++ b/front-end/src/lib/tests/deployFreshness.test.ts
+@@ -65,8 +65,12 @@ describe('deployFreshness', () => {
+       json: async () => ({ basePath: '/app/same' }),
+     })) as unknown as typeof fetch;
+ 
+-    await expect(isStaleDeploy(fetchImpl, 'http://localhost:3002/app/same/')).resolves.toBe(false);
+-    expect(fetchImpl).toHaveBeenCalledWith('/build-meta.json', { cache: 'no-store' });
++    await expect(
++      isStaleDeploy(fetchImpl, 'http://localhost:3002/app/same/', 'http://localhost:3002/'),
++    ).resolves.toBe(false);
++    expect(fetchImpl).toHaveBeenCalledWith('http://localhost:3002/build-meta.json', {
++      cache: 'no-store',
++    });
+   });
+ 
+   it('isStaleDeploy is true when build-meta points at a new nonce', async () => {
+@@ -75,7 +79,31 @@ describe('deployFreshness', () => {
+       json: async () => ({ basePath: '/app/new/' }),
+     })) as unknown as typeof fetch;
+ 
+-    await expect(isStaleDeploy(fetchImpl, 'http://localhost:3002/app/old/')).resolves.toBe(true);
++    await expect(
++      isStaleDeploy(fetchImpl, 'http://localhost:3002/app/old/', 'http://localhost:3002/'),
++    ).resolves.toBe(true);
++  });
++
++  it('isStaleDeploy resolves a relative basePath under a path-prefixed page', async () => {
++    const page = 'https://host.example/play/';
++    const same = jest.fn(async () => ({
++      ok: true,
++      json: async () => ({ basePath: 'app/n1/' }),
++    })) as unknown as typeof fetch;
++    await expect(isStaleDeploy(same, 'https://host.example/play/app/n1/', page)).resolves.toBe(
++      false,
++    );
++    expect(same).toHaveBeenCalledWith('https://host.example/play/build-meta.json', {
++      cache: 'no-store',
++    });
++
++    const moved = jest.fn(async () => ({
++      ok: true,
++      json: async () => ({ basePath: 'app/n2/' }),
++    })) as unknown as typeof fetch;
++    await expect(isStaleDeploy(moved, 'https://host.example/play/app/n1/', page)).resolves.toBe(
++      true,
++    );
+   });
+ 
+   it('isStaleDeploy is false when there is no page base', async () => {
+diff --git a/front-end/src/lib/tests/hub_auto_join.test.tsx b/front-end/src/lib/tests/hub_auto_join.test.tsx
+index 1b26d1c..dbaddd4 100644
+--- a/front-end/src/lib/tests/hub_auto_join.test.tsx
++++ b/front-end/src/lib/tests/hub_auto_join.test.tsx
+@@ -34,7 +34,7 @@ describe('hub automatic join', () => {
+   it('does not auto-join again when a manually entered alias is saved', () => {
+     Object.defineProperty(globalThis, 'window', {
+       configurable: true,
+-      value: { location: { origin: 'https://hub.example' } },
++      value: { location: { origin: 'https://hub.example', href: 'https://hub.example/' } },
+     });
+     mockSavedAlias = null;
+     mockJoinHub.mockClear();
+diff --git a/front-end/src/lib/tests/hub_iframe_credentials.test.ts b/front-end/src/lib/tests/hub_iframe_credentials.test.ts
+index fa80129..77370b3 100644
+--- a/front-end/src/lib/tests/hub_iframe_credentials.test.ts
++++ b/front-end/src/lib/tests/hub_iframe_credentials.test.ts
+@@ -4,7 +4,8 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
+ import { hubSessionFromParentMessage } from '../../../../hub/hub-frontend/src/iframeAuth';
+ import { HubIframe } from '../../components/HubIframe';
+ import { installHubIframeAuthentication } from '../../services/hubIframeAuthentication';
+-import { canonicalHubOrigin, deriveHubSessionId } from '../../services/hubSessionCredential';
++import { deriveHubSessionId } from '../../services/hubSessionCredential';
++import { canonicalHubUrl } from '../../services/hubUrl';
+ 
+ type MessageHandler = (event: MessageEvent) => void;
+ 
+@@ -181,15 +182,15 @@ describe('hub iframe credentials', () => {
+     expect(harness.posts).toEqual([]);
+   });
+ 
+-  it('derives distinct bearer credentials for canonical hub origins', async () => {
++  it('derives distinct bearer credentials for canonical hub URLs', async () => {
+     const master = '01'.repeat(16);
+     const subtle = webcrypto.subtle as unknown as SubtleCrypto;
+ 
+-    const hubA = await deriveHubSessionId(master, 'https://hub.example/path?ignored=1', subtle);
+-    const canonicalHubA = await deriveHubSessionId(master, 'https://hub.example:443/', subtle);
++    const hubA = await deriveHubSessionId(master, 'https://hub.example/?ignored=1#x', subtle);
++    const canonicalHubA = await deriveHubSessionId(master, 'https://hub.example:443', subtle);
+     const hubB = await deriveHubSessionId(master, 'https://other.example/', subtle);
+ 
+-    expect(canonicalHubOrigin('https://HUB.example:443/path')).toBe('https://hub.example');
++    expect(canonicalHubUrl('https://HUB.example:443/path')).toBe('https://hub.example/path');
+     expect(hubA).toBe(canonicalHubA);
+     expect(hubA).toMatch(/^[0-9a-f]{32}$/);
+     expect(hubA).not.toBe(hubB);
+diff --git a/front-end/src/lib/tests/hub_picker_url.test.ts b/front-end/src/lib/tests/hub_picker_url.test.ts
+index fe74943..7665691 100644
+--- a/front-end/src/lib/tests/hub_picker_url.test.ts
++++ b/front-end/src/lib/tests/hub_picker_url.test.ts
+@@ -3,14 +3,22 @@ import { parseHubUrl } from '../../components/HubPicker';
+ describe('hub URL parsing', () => {
+   it('defaults a scheme-less hub URL to https', () => {
+     expect(parseHubUrl('hub.chiatest.net')).toBe('https://hub.chiatest.net');
+-    expect(parseHubUrl(' hub.example.com/path ')).toBe('https://hub.example.com');
++    expect(parseHubUrl(' hub.example.com/path ')).toBe('https://hub.example.com/path');
+     expect(parseHubUrl('localhost:3003')).toBe('https://localhost:3003');
+-    expect(parseHubUrl('hub.example.com:8080/path')).toBe('https://hub.example.com:8080');
++    expect(parseHubUrl('hub.example.com:8080/path')).toBe('https://hub.example.com:8080/path');
+   });
+ 
+   it('preserves an explicitly selected http or https scheme', () => {
+     expect(parseHubUrl('http://localhost:3003')).toBe('http://localhost:3003');
+-    expect(parseHubUrl('https://hub.example.com:444/path')).toBe('https://hub.example.com:444');
++    expect(parseHubUrl('https://hub.example.com:444/path')).toBe(
++      'https://hub.example.com:444/path',
++    );
++  });
++
++  it('keeps a hub path but drops trailing slashes, queries and fragments', () => {
++    expect(parseHubUrl('https://hub.example.com/')).toBe('https://hub.example.com');
++    expect(parseHubUrl('https://host.example/hub/bow/')).toBe('https://host.example/hub/bow');
++    expect(parseHubUrl('https://host.example/hub/bow?x=1#y')).toBe('https://host.example/hub/bow');
+   });
+ 
+   it('rejects unsupported schemes and invalid URLs', () => {
+diff --git a/front-end/src/lib/tests/hub_url.test.ts b/front-end/src/lib/tests/hub_url.test.ts
+new file mode 100644
+index 0000000..fc2421e
+--- /dev/null
++++ b/front-end/src/lib/tests/hub_url.test.ts
+@@ -0,0 +1,68 @@
++import { webcrypto } from 'node:crypto';
++import { toWsUrl } from '../../../../hub/hub-frontend/src/useHubSocket';
++import { deriveHubSessionId } from '../../services/hubSessionCredential';
++import { canonicalHubUrl, hubResourceUrl } from '../../services/hubUrl';
++
++const subtle = webcrypto.subtle as unknown as SubtleCrypto;
++const MASTER = '01'.repeat(16);
++
++describe('hub URLs with a path prefix', () => {
++  it('canonicalizes a root hub to its bare origin', () => {
++    expect(canonicalHubUrl('https://hub.example')).toBe('https://hub.example');
++    expect(canonicalHubUrl('https://hub.example/')).toBe('https://hub.example');
++    expect(canonicalHubUrl('https://HUB.example:443//')).toBe('https://hub.example');
++  });
++
++  it('keeps a path prefix without its trailing slash', () => {
++    expect(canonicalHubUrl('https://host.example/hub/bow/')).toBe('https://host.example/hub/bow');
++    expect(canonicalHubUrl('https://host.example/hub/bow?q=1#f')).toBe(
++      'https://host.example/hub/bow',
++    );
++  });
++
++  it('rejects non-http schemes', () => {
++    expect(() => canonicalHubUrl('ftp://hub.example')).toThrow('unsupported hub URL protocol');
++  });
++
++  it('resolves the lobby page and relay under the hub', () => {
++    expect(hubResourceUrl('https://hub.example', './').href).toBe('https://hub.example/');
++    expect(hubResourceUrl('https://hub.example', 'ws/game').href).toBe(
++      'https://hub.example/ws/game',
++    );
++    expect(hubResourceUrl('https://host.example/hub/bow', './').href).toBe(
++      'https://host.example/hub/bow/',
++    );
++    expect(hubResourceUrl('https://host.example/hub/bow/', 'ws/game').href).toBe(
++      'https://host.example/hub/bow/ws/game',
++    );
++  });
++
++  it('builds the lobby page matchmaking socket relative to the page', () => {
++    expect(toWsUrl('https://hub.example/')).toBe('wss://hub.example/ws/hub');
++    expect(toWsUrl('http://localhost:3003/')).toBe('ws://localhost:3003/ws/hub');
++    expect(toWsUrl('https://host.example/hub/bow/')).toBe('wss://host.example/hub/bow/ws/hub');
++  });
++
++  it('keeps the session credential of root hubs unchanged', async () => {
++    // Values derived by the code before hub paths were supported.
++    await expect(deriveHubSessionId(MASTER, 'https://hub.example', subtle)).resolves.toBe(
++      '7477870d8c06de4022e60f615229c871',
++    );
++    await expect(deriveHubSessionId(MASTER, 'https://hub.example/', subtle)).resolves.toBe(
++      '7477870d8c06de4022e60f615229c871',
++    );
++    await expect(deriveHubSessionId(MASTER, 'http://localhost:3003', subtle)).resolves.toBe(
++      '6600f688ea9eb09518916ae26e1ca959',
++    );
++  });
++
++  it('gives two hubs on one origin different session credentials', async () => {
++    const a = await deriveHubSessionId(MASTER, 'https://host.example/hub/a', subtle);
++    const b = await deriveHubSessionId(MASTER, 'https://host.example/hub/b', subtle);
++    const root = await deriveHubSessionId(MASTER, 'https://host.example', subtle);
++    expect(new Set([a, b, root]).size).toBe(3);
++    await expect(deriveHubSessionId(MASTER, 'https://host.example/hub/a/', subtle)).resolves.toBe(
++      a,
++    );
++  });
++});
+diff --git a/front-end/src/services/HubConnection.ts b/front-end/src/services/HubConnection.ts
+index 7f0fe7a..17e28e3 100644
+--- a/front-end/src/services/HubConnection.ts
++++ b/front-end/src/services/HubConnection.ts
+@@ -10,6 +10,7 @@ import {
+   type BencodexValue,
+ } from 'chia-gaming-bencodex';
+ import type { BusyReason, HubPresence } from '../lib/hubPresence';
++import { hubResourceUrl } from './hubUrl';
+ 
+ export interface AdvisoryStartParams {
+   peer_id: string;
+@@ -245,11 +246,8 @@ export class HubConnection {
+   }
+ 
+   private getWsUrl(): string {
+-    const url = new URL(this.hubUrl);
++    const url = hubResourceUrl(this.hubUrl, 'ws/game');
+     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+-    url.pathname = '/ws/game';
+-    url.search = '';
+-    url.hash = '';
+     return url.toString();
+   }
+ 
+diff --git a/front-end/src/services/hubSessionCredential.ts b/front-end/src/services/hubSessionCredential.ts
+index 36b892c..ce4a5a6 100644
+--- a/front-end/src/services/hubSessionCredential.ts
++++ b/front-end/src/services/hubSessionCredential.ts
+@@ -1,3 +1,5 @@
++import { canonicalHubUrl } from './hubUrl';
++
+ const encoder = new TextEncoder();
+ const CONTEXT = 'chia-gaming hub session v1\0';
+ 
+@@ -16,14 +18,6 @@ function hexFromBytes(value: Uint8Array): string {
+   return Array.from(value, (byte) => byte.toString(16).padStart(2, '0')).join('');
+ }
+ 
+-export function canonicalHubOrigin(hubUrl: string): string {
+-  const url = new URL(hubUrl);
+-  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+-    throw new Error(`unsupported hub URL protocol: ${url.protocol}`);
+-  }
+-  return url.origin;
+-}
+-
+ export async function deriveHubSessionId(
+   masterSessionId: string,
+   hubUrl: string,
+@@ -36,7 +30,7 @@ export async function deriveHubSessionId(
+     false,
+     ['sign'],
+   );
+-  const origin = canonicalHubOrigin(hubUrl);
+-  const signature = await subtle.sign('HMAC', key, encoder.encode(`${CONTEXT}${origin}`));
++  const hub = canonicalHubUrl(hubUrl);
++  const signature = await subtle.sign('HMAC', key, encoder.encode(`${CONTEXT}${hub}`));
+   return hexFromBytes(new Uint8Array(signature).subarray(0, 16));
+ }
+diff --git a/front-end/src/services/hubUrl.ts b/front-end/src/services/hubUrl.ts
+new file mode 100644
+index 0000000..47e1680
+--- /dev/null
++++ b/front-end/src/services/hubUrl.ts
+@@ -0,0 +1,26 @@
++// A hub's address: an http(s) origin, optionally followed by a path prefix.
++//
++// Most hubs live at the root of their origin. A hub can also sit under a path,
++// for example behind a reverse proxy or an embedding host that maps one path
++// per server (https://host.example/hub/a). Everything a hub serves (its lobby
++// page, /ws/hub and /ws/game) is resolved relative to the hub URL.
++//
++// Canonical form: a root hub is its bare origin ("https://hub.example"), so the
++// value is unchanged from when hubs were origins only and the session
++// credentials derived from it stay the same. A hub under a path is the origin
++// plus the path without its trailing slash ("https://host.example/hub/a").
++// Query strings and fragments are never part of a hub URL.
++
++export function canonicalHubUrl(hubUrl: string): string {
++  const url = new URL(hubUrl);
++  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
++    throw new Error(`unsupported hub URL protocol: ${url.protocol}`);
++  }
++  const path = url.pathname.replace(/\/+$/, '');
++  return path ? `${url.origin}${path}` : url.origin;
++}
++
++/** Absolute URL of `relative` (e.g. "ws/game", "./") under the hub. */
++export function hubResourceUrl(hubUrl: string, relative: string): URL {
++  return new URL(relative, `${canonicalHubUrl(hubUrl)}/`);
++}
+diff --git a/hub/hub-frontend/public/index.html b/hub/hub-frontend/public/index.html
+index 63af1f4..5e9b923 100644
+--- a/hub/hub-frontend/public/index.html
++++ b/hub/hub-frontend/public/index.html
+@@ -12,7 +12,7 @@
+     <div id="root"></div>
+     <script>
+       (function () {
+-        fetch('/build-meta.json')
++        fetch('build-meta.json')
+           .then(function (r) { return r.json(); })
+           .then(function (meta) {
+             var base = document.createElement('base');
+diff --git a/hub/hub-frontend/src/hub.tsx b/hub/hub-frontend/src/hub.tsx
+index f051c1f..4cc48f2 100644
+--- a/hub/hub-frontend/src/hub.tsx
++++ b/hub/hub-frontend/src/hub.tsx
+@@ -77,7 +77,12 @@ const HubScreen = ({ sessionId }: { sessionId: string }) => {
+     cancelChallenge,
+     setHubAlias,
+     publicId,
+-  } = useHubSocket(window.location.origin, sessionId);
++  } = useHubSocket(
++    // The lobby page is served at the hub's base URL. Resolve against the page
++    // URL, not document.baseURI: index.html points <base> at the asset folder.
++    new URL('.', window.location.href).toString(),
++    sessionId,
++  );
+ 
+   const autoJoinedRef = useRef(false);
+   useEffect(() => {
+diff --git a/hub/hub-frontend/src/useHubSocket.ts b/hub/hub-frontend/src/useHubSocket.ts
+index 2d6459d..ae772e8 100644
+--- a/hub/hub-frontend/src/useHubSocket.ts
++++ b/hub/hub-frontend/src/useHubSocket.ts
+@@ -38,12 +38,10 @@ type InboundMessage =
+   | { type: 'keepalive' }
+   | { type: 'error'; error?: string };
+ 
+-function toWsUrl(input: string): string {
+-  const url = new URL(input);
++/** `hubUrl` is the hub's base URL, ending in "/"; the hub may sit under a path. */
++export function toWsUrl(hubUrl: string): string {
++  const url = new URL('ws/hub', hubUrl);
+   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+-  url.pathname = '/ws/hub';
+-  url.search = '';
+-  url.hash = '';
+   return url.toString();
+ }
+ 
+diff --git a/tools/build-deploy.sh b/tools/build-deploy.sh
+index 6bfcf3b..18c5ee4 100755
+--- a/tools/build-deploy.sh
++++ b/tools/build-deploy.sh
+@@ -114,7 +114,8 @@ cp -r "$FE_DIR/dist/app/." "$NONCE_DIR/"
+ cp "$FE_DIR/public/index.html" "$GAME_STAGE/index.html"
+ [ -f "$FE_DIR/public/favicon.svg" ] && cp "$FE_DIR/public/favicon.svg" "$GAME_STAGE/favicon.svg"
+ cp "$ROOT_DIR/static-server.js" "$GAME_STAGE/static-server.js"
+-echo "{\"basePath\":\"/app/$BUILD_NONCE/\"}" > "$GAME_STAGE/build-meta.json"
++# basePath is relative to the page, so the stage works at a root or under a path prefix.
++echo "{\"basePath\":\"app/$BUILD_NONCE/\"}" > "$GAME_STAGE/build-meta.json"
+ 
+ node "$ROOT_DIR/tools/verify-stage.mjs" "$GAME_STAGE"
+ 
+@@ -137,7 +138,7 @@ cp -r "$HUB_FRONTEND_DIR/dist/app/." "$HUB_NONCE_DIR/"
+ 
+ # Framing/root files: page shell, generated nonce, and the node service.
+ cp "$HUB_FRONTEND_DIR/public/index.html" "$HUB_STAGE/index.html"
+-echo "{\"basePath\":\"/app/$BUILD_NONCE/\"}" > "$HUB_STAGE/build-meta.json"
++echo "{\"basePath\":\"app/$BUILD_NONCE/\"}" > "$HUB_STAGE/build-meta.json"
+ cp "$HUB_SERVICE_DIR/dist/index-rollup.cjs"  "$HUB_STAGE/service.js"
+ 
+ node "$ROOT_DIR/tools/verify-stage.mjs" "$HUB_STAGE"
+diff --git a/tools/verify-deploy-archives.mjs b/tools/verify-deploy-archives.mjs
+index 737eab5..02f3965 100644
+--- a/tools/verify-deploy-archives.mjs
++++ b/tools/verify-deploy-archives.mjs
+@@ -287,7 +287,7 @@ async function smokeTestPlayer(stageDir) {
+     const basePath = meta.basePath || "/";
+ 
+     for (const asset of ["index.js", "index.css", "chia_gaming_wasm_bg.wasm"]) {
+-      const url = `${base}${basePath}${asset}`;
++      const url = new URL(`${basePath}${asset}`, `${base}/`).href;
+       const res = await fetch(url);
+       if (!res.ok) fail(`player GET ${url} -> ${res.status}`);
+       if (asset.endsWith(".wasm")) {
+@@ -329,7 +329,7 @@ async function smokeTestHub(stageDir) {
+     const basePath = meta.basePath || "/";
+ 
+     for (const asset of ["index.js", "index.css"]) {
+-      const url = `${base}${basePath}${asset}`;
++      const url = new URL(`${basePath}${asset}`, `${base}/`).href;
+       const res = await fetch(url);
+       if (!res.ok) fail(`hub GET ${url} -> ${res.status}`);
+     }
+diff --git a/tools/verify-stage.mjs b/tools/verify-stage.mjs
+index 1e3423c..a609567 100644
+--- a/tools/verify-stage.mjs
++++ b/tools/verify-stage.mjs
+@@ -53,7 +53,8 @@ for (const ref of refs) {
+     continue; // external / inline; not our file
+   }
+   let filePath;
+-  if (ref.startsWith("/")) {
++  if (ref.startsWith("/") || ref === "build-meta.json") {
++    // build-meta.json is fetched before <base> exists, so it is page-relative.
+     filePath = join(STAGE, stripBase(ref));
+   } else {
+     const rel = ref.replace(/^\.\//, "");
+-- 
+2.43.0
+
