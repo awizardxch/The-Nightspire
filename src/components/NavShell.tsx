@@ -8,8 +8,7 @@ import { useState, useRef, useEffect, type ReactNode } from 'react';
 import QRCode from 'react-qr-code';
 import type { DiscordUser } from '../auth';
 import { useWalletConnect } from '../providers/WalletConnectProvider';
-
-type Page = 'battle' | 'wallet' | 'chat' | 'chellyz';
+import type { Page } from '../App';
 
 interface NavShellProps {
   activePage: Page;
@@ -19,7 +18,7 @@ interface NavShellProps {
 }
 
 const tabs: { id: Page; icon: string; label: string }[] = [
-  { id: 'battle',  icon: '⚔️',  label: 'Battle'  },
+  { id: 'hub',     icon: '🎲',  label: 'Games'   },
   { id: 'wallet',  icon: '🔮',  label: 'Fighters' },
   { id: 'chat',    icon: '🧙',  label: 'Wizard'  },
   { id: 'chellyz', icon: '🌸',  label: 'Chellyz' },
