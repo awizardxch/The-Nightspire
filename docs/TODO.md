@@ -9,17 +9,18 @@
 
 ### 🎲 Game Hub (chia-gaming)
 - [x] Games tab: catalog, hub picker, embedded client, pinned revision shown (`src/components/HubTab.tsx`, `src/lib/gameHub.ts`, `src/store/hubStore.ts`)
-- [ ] Deploy the BOW hub (upstream `hub-service` at `76f0fb8c`) at `hub.awizard.dev`
+- [ ] Deploy the Nightspire hub (upstream `hub-service` at `76f0fb8c`) at `hub.awizard.dev`
 - [x] Client served at `/games`: the `game-client` workflow publishes a release, the Vercel build fetches it (docs/GAME_HUB.md)
 - [ ] Add the Vercel deploy hook as repo secret `VERCEL_DEPLOY_HOOK_URL`; set `VITE_GAME_CLIENT_URL=https://play.awizard.dev/games`
 - [x] Client patch: `?hub=` prefills the hub picker (`game-client/patches/`)
 - [x] Client patch: hub base URLs with a path (required for Discord), tested behind a prefix proxy (`game-client/e2e/run.sh`)
 - [ ] Offer the hub-path patch upstream to Chia-Network/chia-gaming
 - [ ] Client page: WalletConnect relay rewrite for Discord, as in our `index.html`
-- [ ] Discord URL mapping: `/hub/bow` (the client at `/games` is covered by `/`)
-- [ ] End-to-end: two players on the BOW hub play California Poker on testnet11 (web), then in Discord
+- [ ] Discord URL mapping: `/hub/nightspire` (the client at `/games` is covered by `/`)
+- [ ] End-to-end: two players on the Nightspire hub play California Poker on testnet11 (web), then in Discord
 - [ ] No-value game CAT for the Discord build (no DEX pools, no swaps)
-- [ ] Love Slots tile → playable once `games/lovespin` exists
+- [x] Love Slots free play in The Nightspire (no wallet, no chain)
+- [ ] Love Slots for value: `games/lovespin` channel game + Love Draw puzzles (aWizard-Familiar docs/slots/LOVE_SLOTS_SPEC.md)
 
 ### ⏸️ Paused
 - Battle of Wizards fighter battles (tab removed; code kept). The state-channel items below that mention BattleTab are on hold with it.

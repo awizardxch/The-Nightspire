@@ -16,11 +16,11 @@ import {
   type HubInfo,
 } from '../lib/gameHub';
 import { allHubs, useHubStore } from '../store/hubStore';
+import LoveSlots from './LoveSlots';
 
 const STATUS_LABEL: Record<GameInfo['status'], { text: string; color: string }> = {
-  live:           { text: 'Live',           color: 'var(--success)' },
-  in_development: { text: 'In development', color: 'var(--warning)' },
-  paused:         { text: 'Paused',         color: 'var(--text-muted)' },
+  live:      { text: 'Live',      color: 'var(--success)' },
+  free_play: { text: 'Free play', color: 'var(--warning)' },
 };
 
 export default function HubTab() {
@@ -29,6 +29,11 @@ export default function HubTab() {
   const hubs = allHubs(customHubs);
   const selected = hubs.find((h) => h.id === selectedHubId) ?? hubs[0] ?? null;
   const src = selected ? gameClientSrc(selected, inDiscord) : null;
+  const [localGame, setLocalGame] = useState<string | null>(null);
+
+  if (localGame === 'loveslots') {
+    return <LoveSlots onBack={() => setLocalGame(null)} />;
+  }
 
   if (playing && src && selected) {
     return <ClientFrame src={src} hub={selected} onBack={() => setPlaying(false)} />;
@@ -58,8 +63,8 @@ export default function HubTab() {
           <GameCard
             key={g.id}
             game={g}
-            playable={g.inClient && !!src}
-            onPlay={() => setPlaying(true)}
+            playable={g.runs === 'local' || !!src}
+            onPlay={() => (g.runs === 'local' ? setLocalGame(g.id) : setPlaying(true))}
           />
         ))}
       </section>
@@ -179,9 +184,8 @@ const inputStyle = {
 
 function GameCard({ game, playable, onPlay }: { game: GameInfo; playable: boolean; onPlay: () => void }) {
   const status = STATUS_LABEL[game.status];
-  const dim = game.status === 'paused';
   return (
-    <div className="glow-card p-3 flex gap-3 items-start" style={{ opacity: dim ? 0.6 : 1 }}>
+    <div className="glow-card p-3 flex gap-3 items-start">
       <span style={{ fontSize: 28, lineHeight: 1 }}>{game.icon}</span>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
@@ -192,22 +196,20 @@ function GameCard({ game, playable, onPlay }: { game: GameInfo; playable: boolea
         </div>
         <p className="text-xs mt-1 leading-snug" style={{ color: 'var(--text-muted)' }}>{game.blurb}</p>
       </div>
-      {game.inClient && (
-        <button
-          onClick={onPlay}
-          disabled={!playable}
-          className="self-center px-3 py-1.5 rounded-lg text-xs font-bold"
-          style={{
-            background: playable ? 'linear-gradient(135deg, #00d9ff, #ff6600)' : 'rgba(60,60,60,0.6)',
-            color: '#fff',
-            border: 'none',
-            cursor: playable ? 'pointer' : 'not-allowed',
-            opacity: playable ? 1 : 0.5,
-          }}
-        >
-          Play
-        </button>
-      )}
+      <button
+        onClick={onPlay}
+        disabled={!playable}
+        className="self-center px-3 py-1.5 rounded-lg text-xs font-bold"
+        style={{
+          background: playable ? 'linear-gradient(135deg, #00d9ff, #ff6600)' : 'rgba(60,60,60,0.6)',
+          color: '#fff',
+          border: 'none',
+          cursor: playable ? 'pointer' : 'not-allowed',
+          opacity: playable ? 1 : 0.5,
+        }}
+      >
+        Play
+      </button>
     </div>
   );
 }

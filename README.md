@@ -8,9 +8,9 @@
 
 The Nightspire is the BOW project: a **Discord Embedded Activity** (and web app) that serves as the BOW game hub.
 
-- **🎲 Games** — host or join two-player Chia state-channel games (California Poker, Space Poker, Krunk) on the BOW hub or any compatible chia-gaming hub. Love Slots is in development. See [docs/GAME_HUB.md](docs/GAME_HUB.md).
+- **🎲 Games** — host or join two-player Chia state-channel games (California Poker, Space Poker, Krunk) on the Nightspire hub or any compatible chia-gaming hub, plus **Love Slots** in free play (free credits, no wallet; `src/components/LoveSlots.tsx`, game math in `src/lib/loveSlots.ts`, tested by `npm test` against the design's simulation). See [docs/GAME_HUB.md](docs/GAME_HUB.md).
 
-Games is the only tab. Battle, Fighters, Wizard chat and Chellyz have no tab; their components stay in the repo.
+Games is the only tab. Battle of Wizards, Fighters, Wizard chat and Chellyz are not shown; their components stay in the repo.
 
 ---
 

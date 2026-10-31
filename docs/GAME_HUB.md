@@ -16,7 +16,7 @@
 | --- | --- | --- |
 | **The Nightspire** | this app: game catalog, hub picker, embeds the client | Vercel at `play.awizard.dev` (web) + Discord Activity |
 | **chia-gaming client** | upstream `front-end`, built at the pinned commit | the same Vercel project, at **`play.awizard.dev/games`** |
-| **BOW hub** | upstream `hub/hub-service`: lobby page at `/`, `/ws/hub` matchmaking, `/ws/game` relay | a VPS, e.g. `https://hub.awizard.dev` |
+| **Nightspire hub** | upstream `hub/hub-service`: lobby page at `/`, `/ws/hub` matchmaking, `/ws/game` relay | a VPS, e.g. `https://hub.awizard.dev` |
 
 Everything is under `play.awizard.dev` except the hub. The hub runs on two
 long-lived WebSockets, which Vercel can neither host nor proxy, so it needs its
@@ -31,7 +31,7 @@ between hubs never touches funds.
 
 ```env
 # Built-in hubs: name|origin|discord-path, comma separated; first is the default.
-VITE_GAME_HUBS=BOW Hub|https://hub.awizard.dev|/hub/bow
+VITE_GAME_HUBS=Nightspire Hub|https://hub.awizard.dev|/hub/nightspire
 # Where the client build is served on the web.
 VITE_GAME_CLIENT_URL=https://play.awizard.dev/games
 # Path of the client inside Discord. /games sits under the Activity's own "/"
@@ -68,7 +68,7 @@ cd game-client
 It refuses to build if its commit differs from `CHIA_GAMING_COMMIT` in
 `src/lib/gameHub.ts`. Outputs land in `game-client/.build/chia-gaming/`:
 `deploy_player_app/*.tgz` (the client) and `deploy_hub/*.tgz` (hub frontend +
-service for the BOW hub).
+service for the Nightspire hub).
 
 ### How the client gets to `/games` (automated)
 
@@ -112,7 +112,7 @@ over `dist/`, which is how Vercel serves it.
 1. **Hubs under a path.** The stock client treats a hub as a bare origin
    (lobby at `/`, `/ws/hub` and `/ws/game` at the root), which can't work
    behind a Discord URL mapping. With the patch, a hub URL may carry a path,
-   e.g. `https://<app>.discordsays.com/hub/bow`, and the lobby page and both
+   e.g. `https://<app>.discordsays.com/hub/nightspire`, and the lobby page and both
    sockets resolve under it. Root hubs behave exactly as before: same
    canonical URL, same session credential (pinned by a test). Two hubs on one
    origin get different sessions. `build-meta.json` and `basePath` became
@@ -145,8 +145,8 @@ over `dist/`, which is how Vercel serves it.
 Checks: front-end jest suite (1,350 tests; only `sha256bytes` fails, as it does
 upstream without a WASM build) and `game-client/e2e/run.sh`, which puts the
 real lobby and the client's real relay connection behind a proxy that maps
-`/hub/bow/*` with the prefix stripped, matches two players, and confirms the
-hub delivers `advisory_start` over `/hub/bow/ws/game`. The same run at a hub
+`/hub/nightspire/*` with the prefix stripped, matches two players, and confirms the
+hub delivers `advisory_start` over `/hub/nightspire/ws/game`. The same run at a hub
 root passes too. Not yet tested: a full game in the WASM client, and real
 Discord (the proxy only imitates its URL mappings).
 
@@ -162,7 +162,7 @@ WebSocket rewrite in the client's own page).
 | Prefix | Target |
 | --- | --- |
 | `/` | `play.awizard.dev` (The Nightspire, and the client at `/games`) |
-| `/hub/bow` | `hub.awizard.dev` (HTTP and WebSocket) |
+| `/hub/nightspire` | `hub.awizard.dev` (HTTP and WebSocket) |
 | `/walletconnect` | `relay.walletconnect.org` (already in use) |
 
 Add one `/hub/<name>` mapping per partner hub that should be playable from

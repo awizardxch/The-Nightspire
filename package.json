@@ -8,6 +8,7 @@
     "prebuild": "node scripts/fetch-game-client.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "test": "node --experimental-strip-types --no-warnings --test tests/loveSlots.test.ts",
     "lint": "eslint src/"
   },
   "dependencies": {
