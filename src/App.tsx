@@ -1,16 +1,14 @@
 import { useState, useEffect, useRef, type ReactNode } from 'react';
 import NavShell from './components/NavShell';
-import WizardChat from './components/WizardChat';
 import HubTab from './components/HubTab';
-import WalletTab from './components/WalletTab';
-import ChellyzTab from './components/ChellyzTab';
 import { WalletConnectProvider } from './providers/WalletConnectProvider';
 import { setupDiscordSdk } from './discord';
 import { fetchDiscordUser, type DiscordUser } from './auth';
 import useBowActivityStore from './store/bowActivityStore';
 
-// Battles are paused for now: BattleTab stays in the repo but has no tab.
-export type Page = 'hub' | 'wallet' | 'chat' | 'chellyz';
+// The Nightspire is the game hub. Battle, Fighters, Wizard and Chellyz have
+// no tab; their components stay in the repo.
+export type Page = 'hub';
 
 export default function App() {
   const [page, setPage] = useState<Page>('hub');
@@ -145,9 +143,6 @@ export default function App() {
   /* ── Main app ───────────────────────────────────────────── */
   const pages: Record<Page, ReactNode> = {
     hub: <HubTab />,
-    wallet: <WalletTab userId={user?.id || ''} />,
-    chat: <WizardChat user={user} />,
-    chellyz: <ChellyzTab userId={user?.id || ''} userName={user?.global_name ?? user?.username ?? 'Wizard'} />,
   };
 
   return (

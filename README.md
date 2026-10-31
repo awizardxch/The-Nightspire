@@ -6,14 +6,11 @@
 
 ## What is The Nightspire?
 
-The Nightspire is a **Discord Embedded Activity** (and web app) and the BOW game hub. Users can:
+The Nightspire is the BOW project: a **Discord Embedded Activity** (and web app) that serves as the BOW game hub.
 
 - **🎲 Games** — host or join two-player Chia state-channel games (California Poker, Space Poker, Krunk) on the BOW hub or any compatible chia-gaming hub. Love Slots is in development. See [docs/GAME_HUB.md](docs/GAME_HUB.md).
-- **🧙 Chat with aWizard** — get help with games, NFTs, and strategy
-- **🔮 Fighters** — browse your NFT collection
-- **🌸 Chellyz** — the Chellyz card game
 
-Battle of Wizards fighter battles are **paused** until a later season; the code stays in the repo without a tab.
+Games is the only tab. Battle, Fighters, Wizard chat and Chellyz have no tab; their components stay in the repo.
 
 ---
 
