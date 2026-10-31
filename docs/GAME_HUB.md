@@ -107,17 +107,7 @@ the Games tab can embed it on the web as well as in Discord.
 app's own `index.html`. Check it with `npm run build` and a static server
 over `dist/`, which is how Vercel serves it.
 
-### Blocker: the client refuses to run in a frame
-
-Upstream's player `index.html` stops with "This is a player URL, not a hub
-URL" whenever `window.top !== window`. That guards against a player being
-loaded inside another player's hub frame, and against clickjacking. The Games
-tab embeds the client in a frame (and Discord frames The Nightspire), so
-**Play shows that error until the client gets a second patch** that allows
-trusted parents. Found by loading the real client build through Play; not yet
-decided how to resolve.
-
-## The client patch (`game-client/patches/0001-…`)
+## The client patches (`game-client/patches/`)
 
 1. **Hubs under a path.** The stock client treats a hub as a bare origin
    (lobby at `/`, `/ws/hub` and `/ws/game` at the root), which can't work
@@ -134,6 +124,23 @@ decided how to resolve.
    player on its own, because the hub renders its own UI inside the client.
    If the player is already connected to a saved hub, the client reconnects
    to that one; `?hub=` is used the next time the picker shows.
+3. **Embedding under a path (`0002`).** Upstream's player refuses to start
+   in any frame (`window.top !== window` → "This is a player URL, not a hub
+   URL"), which also stops a site from embedding a player it hosts. With
+   the patch, a framed player runs only if its parent is a same-origin page
+   that isn't itself a player. That covers The Nightspire at `/` embedding
+   `/games/`, on the web and inside Discord.
+   - **Other sites can't pass the check:** reading `window.parent.location`
+     throws cross-origin, and `vercel.json`'s `frame-ancestors` (`'self'` plus
+     Discord) stops them framing `/games` at all.
+   - **A player URL entered as a hub is still refused**, because it loads
+     under the player's own directory.
+   - **A player at a site root is unchanged:** every same-origin path
+     starts with `/`.
+
+   Checked with the real build: Play starts the client in the Games tab with
+   the hub prefilled, Connect loads the real hub's lobby inside it, and a
+   nested player and a cross-origin frame are both refused.
 
 Checks: front-end jest suite (1,350 tests; only `sha256bytes` fails, as it does
 upstream without a WASM build) and `game-client/e2e/run.sh`, which puts the
