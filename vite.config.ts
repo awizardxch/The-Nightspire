@@ -23,7 +23,7 @@ export default defineConfig({
     // Allow Discord's iframe to embed this during development
     headers: {
       'Content-Security-Policy':
-        "frame-ancestors https://discord.com https://*.discord.com https://*.discordapp.com https://*.discordsays.com",
+        "frame-ancestors 'self' https://discord.com https://*.discord.com https://*.discordapp.com https://*.discordsays.com",
     },
   },
 });
