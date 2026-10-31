@@ -1,0 +1,52 @@
+From 8f8bdd4c87a7e05fb8ada2ba9412c751a32c05aa Mon Sep 17 00:00:00 2001
+From: awizardxch <awizard.eth@gmail.com>
+Date: Sat, 31 Oct 2026 01:51:34 +0000
+Subject: [PATCH] Let a site embed the player when it serves it under a path
+
+The player refused to start in any frame (window.top !== window), which
+also blocks a site from embedding a player it hosts itself. Now a framed
+player runs only when its parent is a same-origin page that is not
+itself a player:
+
+- Reading window.parent.location throws for a cross-origin parent, so
+  other sites can't satisfy the check; the hosting site's
+  frame-ancestors policy still decides who may frame it at all.
+- A player URL entered as a hub loads under the player's own directory,
+  so that case is still refused, as before.
+- A player at a site root has "/" as its directory, which every
+  same-origin path starts with, so root deployments behave exactly as
+  before.
+---
+ front-end/public/index.html | 16 +++++++++++++++-
+ 1 file changed, 15 insertions(+), 1 deletion(-)
+
+diff --git a/front-end/public/index.html b/front-end/public/index.html
+index 2c22f98..aa279c8 100644
+--- a/front-end/public/index.html
++++ b/front-end/public/index.html
+@@ -12,7 +12,21 @@
+     <div id="root"></div>
+     <script>
+       (function () {
+-        if (window.top !== window) {
++        // A framed player runs only when its parent is a page of the same site
++        // that is not itself a player, such as a site that embeds the player
++        // (whose frame-ancestors policy decides who may frame it at all).
++        // Reading the parent's location throws for a cross-origin parent. A
++        // player URL entered as a hub loads under the player's own directory,
++        // so it is still refused.
++        function embeddedBySite() {
++          try {
++            var ownDir = window.location.pathname.replace(/[^/]*$/, '');
++            return window.parent.location.pathname.indexOf(ownDir) !== 0;
++          } catch (e) {
++            return false;
++          }
++        }
++        if (window.top !== window && !embeddedBySite()) {
+           document.getElementById('root').innerHTML =
+             '<main style="box-sizing:border-box;max-width:40rem;margin:4rem auto;padding:0 1.5rem;font-family:system-ui,sans-serif;line-height:1.5;color:#b91c1c">' +
+             '<h1 style="font-size:1.25rem">This is a player URL, not a hub URL</h1>' +
+-- 
+2.43.0
+

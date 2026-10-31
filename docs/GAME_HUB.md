@@ -70,16 +70,34 @@ It refuses to build if its commit differs from `CHIA_GAMING_COMMIT` in
 `deploy_player_app/*.tgz` (the client) and `deploy_hub/*.tgz` (hub frontend +
 service for the BOW hub).
 
-### Putting the client at `/games`
+### How the client gets to `/games` (automated)
 
-Vite copies `public/` into the deploy as is, so the client goes in
-`public/games/`:
+1. **Tag.** `scripts/game-client-tag.mjs` names the release
+   `game-client-<hash>`, hashed from `game-client/build.sh` (which pins the
+   chia-gaming commit) and `game-client/patches/`. Same inputs, same tag, so
+   CI and Vercel agree without a version number committed anywhere.
+2. **Build and publish** (`.github/workflows/game-client.yml`). On a push to
+   `main` that changes those inputs, CI builds the client and hub (~30
+   minutes), verifies the archives, and publishes the GitHub release with
+   `player-app.tgz`, `hub.tgz` and `SHA256SUMS.txt`. If the release already
+   exists, it skips the build. Pull requests build but never publish.
+3. **Fetch** (`scripts/fetch-game-client.mjs`, run as npm `prebuild`). Every
+   Vercel build downloads that release, checks the SHA-256, and unpacks it
+   into `public/games/` (gitignored). Vite copies it into the deploy, so the
+   client is served at `/games`. A checksum mismatch always fails the build.
+4. **Redeploy.** Vercel finishes in about a minute, long before CI, so the
+   first deploy after a client change has no `/games` (the build log says
+   so). The workflow's last step calls a Vercel deploy hook so the site
+   redeploys once the release exists.
 
-```bash
-rm -rf public/games && mkdir -p public/games
-tar -xzf game-client/.build/chia-gaming/deploy_player_app/chia-gaming-*.tgz -C public/games
-rm public/games/static-server.js   # upstream's local server; Vercel serves the files
-```
+**One-time setup:** in Vercel, Project → Settings → Git → Deploy Hooks,
+create a hook for `main`. Add its URL to the GitHub repository secrets as
+`VERCEL_DEPLOY_HOOK_URL`. Without it, the workflow warns and you redeploy by
+hand.
+
+Knobs for `fetch-game-client.mjs`: `GAME_CLIENT_SKIP=1` (don't fetch),
+`GAME_CLIENT_REQUIRED=1` (fail instead of building without `/games`),
+`GAME_CLIENT_BASE_URL` (fetch from a mirror or a local test server).
 
 The patch made the client's assets page-relative, so it runs under `/games/`
 as it would at a root. `vercel.json` allows `'self'` in `frame-ancestors`, so
@@ -89,12 +107,7 @@ the Games tab can embed it on the web as well as in Discord.
 app's own `index.html`. Check it with `npm run build` and a static server
 over `dist/`, which is how Vercel serves it.
 
-Not automated yet: someone has to run the steps above and commit
-`public/games/`. The planned route is for the `game-client` workflow to
-publish the player app as a GitHub release asset, and for the Vercel build to
-fetch that pinned release into `public/games/` before `vite build`.
-
-## The client patch (`game-client/patches/0001-…`)
+## The client patches (`game-client/patches/`)
 
 1. **Hubs under a path.** The stock client treats a hub as a bare origin
    (lobby at `/`, `/ws/hub` and `/ws/game` at the root), which can't work
@@ -111,6 +124,23 @@ fetch that pinned release into `public/games/` before `vite build`.
    player on its own, because the hub renders its own UI inside the client.
    If the player is already connected to a saved hub, the client reconnects
    to that one; `?hub=` is used the next time the picker shows.
+3. **Embedding under a path (`0002`).** Upstream's player refuses to start
+   in any frame (`window.top !== window` → "This is a player URL, not a hub
+   URL"), which also stops a site from embedding a player it hosts. With
+   the patch, a framed player runs only if its parent is a same-origin page
+   that isn't itself a player. That covers The Nightspire at `/` embedding
+   `/games/`, on the web and inside Discord.
+   - **Other sites can't pass the check:** reading `window.parent.location`
+     throws cross-origin, and `vercel.json`'s `frame-ancestors` (`'self'` plus
+     Discord) stops them framing `/games` at all.
+   - **A player URL entered as a hub is still refused**, because it loads
+     under the player's own directory.
+   - **A player at a site root is unchanged:** every same-origin path
+     starts with `/`.
+
+   Checked with the real build: Play starts the client in the Games tab with
+   the hub prefilled, Connect loads the real hub's lobby inside it, and a
+   nested player and a cross-origin frame are both refused.
 
 Checks: front-end jest suite (1,350 tests; only `sha256bytes` fails, as it does
 upstream without a WASM build) and `game-client/e2e/run.sh`, which puts the

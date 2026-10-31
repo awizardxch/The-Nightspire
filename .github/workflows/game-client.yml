@@ -1,0 +1,150 @@
+# Builds the chia-gaming game client and hub that The Nightspire embeds
+# (upstream chia-gaming at the commit pinned in game-client/build.sh, with
+# game-client/patches applied) and, on main, publishes them as the GitHub
+# release named by scripts/game-client-tag.mjs. The Vercel build fetches that
+# release into public/games/ (scripts/fetch-game-client.mjs), so the client is
+# served at /games. Mirrors the "Build deploy tarballs" job in upstream's
+# .github/workflows/build-test.yml. See docs/GAME_HUB.md.
+name: game-client
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'game-client/**'
+      - 'scripts/game-client-tag.mjs'
+      - '.github/workflows/game-client.yml'
+  pull_request:
+    paths:
+      - 'game-client/**'
+      - 'scripts/game-client-tag.mjs'
+      - '.github/workflows/game-client.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: game-client-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build player app and hub
+    runs-on: ubuntu-22.04
+    # The Chialisp step in cargo's build script alone takes ~20 minutes, and it
+    # reruns on every fresh checkout, so caching target/ would not skip it.
+    timeout-minutes: 90
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      published: ${{ steps.tag.outputs.published }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      # A release with this tag already holds a build of these exact inputs.
+      - name: Release tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(node scripts/game-client-tag.mjs)
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::$tag is already published; skipping the build."
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install rust
+        if: steps.tag.outputs.published != 'true'
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+
+      # upstream tools/build-chialisp.sh needs xxd
+      - name: Check xxd
+        if: steps.tag.outputs.published != 'true'
+        run: command -v xxd || (sudo apt-get update && sudo apt-get install -y xxd)
+
+      - name: Install wasm-pack
+        if: steps.tag.outputs.published != 'true'
+        run: cargo install wasm-pack --version 0.15.0 --locked
+
+      - name: Setup pnpm
+        if: steps.tag.outputs.published != 'true'
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.33.0 --activate
+
+      # Clones chia-gaming at the pinned commit, applies game-client/patches,
+      # and runs upstream tools/build-deploy.sh.
+      - name: Build
+        if: steps.tag.outputs.published != 'true'
+        run: game-client/build.sh
+
+      - name: Verify archives
+        if: steps.tag.outputs.published != 'true'
+        working-directory: game-client/.build/chia-gaming
+        run: tools/test-deploy-archives.sh
+
+      # Stable asset names, so fetch-game-client.mjs needs no listing.
+      - name: Stage release assets
+        if: steps.tag.outputs.published != 'true'
+        run: |
+          mkdir -p release
+          src=game-client/.build/chia-gaming
+          cp "$src"/deploy_player_app/chia-gaming-*.tgz release/player-app.tgz
+          cp "$src"/deploy_hub/chia-gaming-hub-*.tgz release/hub.tgz
+          (cd release && sha256sum player-app.tgz hub.tgz | tee SHA256SUMS.txt)
+
+      - name: Upload
+        if: steps.tag.outputs.published != 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: game-client
+          path: release/
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Publish release
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && needs.build.outputs.published != 'true'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: game-client
+          path: release
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.build.outputs.tag }}
+        run: |
+          gh release create "$TAG" release/player-app.tgz release/hub.tgz release/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "$TAG" \
+            --notes "chia-gaming player app and hub, built by the game-client workflow from $GITHUB_SHA. The Vercel build fetches player-app.tgz into /games; hub.tgz is the BOW hub (docs/GAME_HUB.md)."
+
+      # Optional: add a Vercel deploy hook URL as the repository secret
+      # VERCEL_DEPLOY_HOOK_URL, so the site redeploys and picks up /games.
+      - name: Redeploy Vercel
+        env:
+          HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "::warning::VERCEL_DEPLOY_HOOK_URL is not set; redeploy the site manually to pick up /games."
+          else
+            curl -fsS -X POST "$HOOK" > /dev/null && echo "Vercel redeploy triggered."
+          fi
