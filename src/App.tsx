@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, type ReactNode } from 'react';
 import NavShell from './components/NavShell';
 import WizardChat from './components/WizardChat';
-import BattleTab from './components/BattleTab';
+import HubTab from './components/HubTab';
 import WalletTab from './components/WalletTab';
 import ChellyzTab from './components/ChellyzTab';
 import { WalletConnectProvider } from './providers/WalletConnectProvider';
@@ -9,10 +9,11 @@ import { setupDiscordSdk } from './discord';
 import { fetchDiscordUser, type DiscordUser } from './auth';
 import useBowActivityStore from './store/bowActivityStore';
 
-type Page = 'battle' | 'wallet' | 'chat' | 'chellyz';
+// Battles are paused for now: BattleTab stays in the repo but has no tab.
+export type Page = 'hub' | 'wallet' | 'chat' | 'chellyz';
 
 export default function App() {
-  const [page, setPage] = useState<Page>('battle');
+  const [page, setPage] = useState<Page>('hub');
   const [user, setUser] = useState<DiscordUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -143,7 +144,7 @@ export default function App() {
 
   /* ── Main app ───────────────────────────────────────────── */
   const pages: Record<Page, ReactNode> = {
-    battle: <BattleTab userId={user?.id || ''} />,
+    hub: <HubTab />,
     wallet: <WalletTab userId={user?.id || ''} />,
     chat: <WizardChat user={user} />,
     chellyz: <ChellyzTab userId={user?.id || ''} userName={user?.global_name ?? user?.username ?? 'Wizard'} />,

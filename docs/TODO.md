@@ -7,6 +7,24 @@
 
 ## Backlog
 
+### 🎲 Game Hub (chia-gaming)
+- [x] Games tab: catalog, hub picker, embedded client, pinned revision shown (`src/components/HubTab.tsx`, `src/lib/gameHub.ts`, `src/store/hubStore.ts`)
+- [ ] Deploy the BOW hub (upstream `hub-service` at `76f0fb8c`) at `hub.awizard.dev`
+- [ ] Build and host the chia-gaming client at the same commit; set `VITE_GAME_CLIENT_URL`
+- [x] Client patch: `?hub=` prefills the hub picker (`game-client/patches/`)
+- [x] Client patch: hub base URLs with a path (required for Discord), tested behind a prefix proxy (`game-client/e2e/run.sh`)
+- [ ] Offer the hub-path patch upstream to Chia-Network/chia-gaming
+- [ ] Client page: WalletConnect relay rewrite for Discord, as in our `index.html`
+- [ ] Discord URL mappings: `/play`, `/hub/bow`
+- [ ] End-to-end: two players on the BOW hub play California Poker on testnet11 (web), then in Discord
+- [ ] No-value game CAT for the Discord build (no DEX pools, no swaps)
+- [ ] Love Slots tile → playable once `games/lovespin` exists
+
+### ⏸️ Paused
+- Battle of Wizards fighter battles (tab removed; code kept). The state-channel items below that mention BattleTab are on hold with it.
+- `stateChannel.ts` / `channelOpen.ts` are superseded by chia-gaming; port Chellyz to a chia-gaming game instead of extending them.
+
+
 ### ⚡ State Channel Battles (Mainnet)
 - [x] **Align channelOpen.ts with bow-app real CLVM coin spend**
   - `buildStandardSolution(puzHash, amount, memo)` ported from bow-app — REMARK + CREATE_COIN via greenwebjs

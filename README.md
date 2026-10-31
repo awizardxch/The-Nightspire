@@ -6,12 +6,14 @@
 
 ## What is The Nightspire?
 
-The Nightspire is a **Discord Embedded Activity** that brings the Arcane BOW ecosystem directly into Discord. Users can:
+The Nightspire is a **Discord Embedded Activity** (and web app) and the BOW game hub. Users can:
 
-- **🧙 Chat with aWizard** — get help with battles, NFTs, and strategy
-- **⚔️ Battle Dashboard** — launch battles, view match history
-- **🎴 NFT Viewer** — browse your Magic BOW collection  
-- **🏆 Leaderboard** — see APS rankings and your current rank
+- **🎲 Games** — host or join two-player Chia state-channel games (California Poker, Space Poker, Krunk) on the BOW hub or any compatible chia-gaming hub. Love Slots is in development. See [docs/GAME_HUB.md](docs/GAME_HUB.md).
+- **🧙 Chat with aWizard** — get help with games, NFTs, and strategy
+- **🔮 Fighters** — browse your NFT collection
+- **🌸 Chellyz** — the Chellyz card game
+
+Battle of Wizards fighter battles are **paused** until a later season; the code stays in the repo without a tab.
 
 ---
 
@@ -97,7 +99,13 @@ npm run build
 # Upload dist/ folder to your static host
 ```
 
-## Current State (March 2, 2026)
+## Current State (October 30, 2026)
+
+- **Games tab (new):** game catalog, hub picker (built-in hubs from `VITE_GAME_HUBS`, plus hubs players add on the web), and the embedded chia-gaming client pinned to `76f0fb8c`. Checked in a browser against a stand-in client page; a real client build and hub deployment are next.
+- **Battles paused:** the Battle tab is gone from the nav; `BattleTab.tsx` is kept.
+- **Superseded:** `src/lib/stateChannel.ts` and `src/lib/channelOpen.ts` predate upstream chia-gaming. The "channel open" there is a single-player spend back to self, not a 2-of-2 channel. New games use the chia-gaming client; Chellyz still uses the old flow until it is ported.
+
+## Previous State (March 2, 2026)
 
 ### ✅ Completed
 - **WalletConnect v2 Full Integration**: `index.html` inline WebSocket patch bypasses isomorphic-ws timing issue; relay routed through Discord URL Mapping `/walletconnect` → `relay.walletconnect.org`
