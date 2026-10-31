@@ -10,8 +10,8 @@
 ### 🎲 Game Hub (chia-gaming)
 - [x] Games tab: catalog, hub picker, embedded client, pinned revision shown (`src/components/HubTab.tsx`, `src/lib/gameHub.ts`, `src/store/hubStore.ts`)
 - [ ] Deploy the BOW hub (upstream `hub-service` at `76f0fb8c`) at `hub.awizard.dev`
-- [ ] Put the client build in `public/games/` (see docs/GAME_HUB.md); set `VITE_GAME_CLIENT_URL=https://play.awizard.dev/games`
-- [ ] Automate it: workflow publishes the player app as a release asset, Vercel build fetches the pinned release
+- [x] Client served at `/games`: the `game-client` workflow publishes a release, the Vercel build fetches it (docs/GAME_HUB.md)
+- [ ] Add the Vercel deploy hook as repo secret `VERCEL_DEPLOY_HOOK_URL`; set `VITE_GAME_CLIENT_URL=https://play.awizard.dev/games`
 - [x] Client patch: `?hub=` prefills the hub picker (`game-client/patches/`)
 - [x] Client patch: hub base URLs with a path (required for Discord), tested behind a prefix proxy (`game-client/e2e/run.sh`)
 - [ ] Offer the hub-path patch upstream to Chia-Network/chia-gaming

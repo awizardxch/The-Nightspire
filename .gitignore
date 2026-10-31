@@ -7,6 +7,8 @@ node_modules/
 # Production builds
 /dist
 /build
+# game client, fetched at build time by scripts/fetch-game-client.mjs
+/public/games/
 
 # Environment variables (personal)
 .env
