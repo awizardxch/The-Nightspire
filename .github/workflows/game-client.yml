@@ -1,0 +1,92 @@
+# Builds the chia-gaming player app and hub that The Nightspire's Games tab
+# embeds: upstream chia-gaming at the commit pinned in game-client/build.sh,
+# with game-client/patches applied. Mirrors the "Build deploy tarballs" job in
+# upstream's .github/workflows/build-test.yml. See docs/GAME_HUB.md.
+name: game-client
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'game-client/**'
+      - 'src/lib/gameHub.ts'
+      - '.github/workflows/game-client.yml'
+  pull_request:
+    paths:
+      - 'game-client/**'
+      - 'src/lib/gameHub.ts'
+      - '.github/workflows/game-client.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: game-client-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build player app and hub
+    runs-on: ubuntu-22.04
+    # The Chialisp step in cargo's build script alone takes ~20 minutes, and it
+    # reruns on every fresh checkout, so caching target/ would not skip it.
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install rust
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+
+      # upstream tools/build-chialisp.sh needs xxd
+      - name: Check xxd
+        run: command -v xxd || (sudo apt-get update && sudo apt-get install -y xxd)
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --version 0.15.0 --locked
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - name: Setup pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.33.0 --activate
+
+      # Clones chia-gaming at the pinned commit, applies game-client/patches,
+      # and runs upstream tools/build-deploy.sh.
+      - name: Build
+        run: game-client/build.sh
+
+      - name: Verify archives
+        working-directory: game-client/.build/chia-gaming
+        run: tools/test-deploy-archives.sh
+
+      - name: Checksums
+        working-directory: game-client/.build/chia-gaming
+        run: |
+          sha256sum deploy_player_app/chia-gaming-*.tgz deploy_hub/chia-gaming-hub-*.tgz \
+            | tee SHA256SUMS.txt
+
+      - name: Upload player app
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: game-client-player-app-${{ github.sha }}
+          path: game-client/.build/chia-gaming/deploy_player_app/chia-gaming-*.tgz
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload hub
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: game-client-hub-${{ github.sha }}
+          path: |
+            game-client/.build/chia-gaming/deploy_hub/chia-gaming-hub-*.tgz
+            game-client/.build/chia-gaming/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
