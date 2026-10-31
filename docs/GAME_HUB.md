@@ -14,9 +14,13 @@
 
 | Piece | What it is | Where it runs |
 | --- | --- | --- |
-| **The Nightspire** | this app: game catalog, hub picker, embeds the client | Vercel (web) + Discord Activity |
-| **chia-gaming client** | upstream `front-end`, built at the pinned commit | static host; same build for web and Discord |
+| **The Nightspire** | this app: game catalog, hub picker, embeds the client | Vercel at `play.awizard.dev` (web) + Discord Activity |
+| **chia-gaming client** | upstream `front-end`, built at the pinned commit | the same Vercel project, at **`play.awizard.dev/games`** |
 | **BOW hub** | upstream `hub/hub-service`: lobby page at `/`, `/ws/hub` matchmaking, `/ws/game` relay | a VPS, e.g. `https://hub.awizard.dev` |
+
+Everything is under `play.awizard.dev` except the hub. The hub runs on two
+long-lived WebSockets, which Vercel can neither host nor proxy, so it needs its
+own server and address.
 | Other hubs | any server running upstream `hub-service` at the same revision | anywhere |
 
 Hosting or joining a game happens in the client, on the hub it's pointed at.
@@ -29,9 +33,10 @@ between hubs never touches funds.
 # Built-in hubs: name|origin|discord-path, comma separated; first is the default.
 VITE_GAME_HUBS=BOW Hub|https://hub.awizard.dev|/hub/bow
 # Where the client build is served on the web.
-VITE_GAME_CLIENT_URL=https://play.awizard.dev
-# Discord URL-mapping prefix that serves the same client build.
-VITE_GAME_CLIENT_DISCORD_PATH=/play
+VITE_GAME_CLIENT_URL=https://play.awizard.dev/games
+# Path of the client inside Discord. /games sits under the Activity's own "/"
+# mapping, so it needs no mapping of its own.
+VITE_GAME_CLIENT_DISCORD_PATH=/games
 ```
 
 On the web, players can also add any `https://` hub. Inside Discord, only
@@ -62,10 +67,32 @@ cd game-client
 
 It refuses to build if its commit differs from `CHIA_GAMING_COMMIT` in
 `src/lib/gameHub.ts`. Outputs land in `game-client/.build/chia-gaming/`:
-`deploy_player_app/*.tgz` (static files for `VITE_GAME_CLIENT_URL`) and
-`deploy_hub/*.tgz` (hub frontend + service for the BOW hub). The client host
-must not send `X-Frame-Options` or a `frame-ancestors` that excludes The
-Nightspire.
+`deploy_player_app/*.tgz` (the client) and `deploy_hub/*.tgz` (hub frontend +
+service for the BOW hub).
+
+### Putting the client at `/games`
+
+Vite copies `public/` into the deploy as is, so the client goes in
+`public/games/`:
+
+```bash
+rm -rf public/games && mkdir -p public/games
+tar -xzf game-client/.build/chia-gaming/deploy_player_app/chia-gaming-*.tgz -C public/games
+rm public/games/static-server.js   # upstream's local server; Vercel serves the files
+```
+
+The patch made the client's assets page-relative, so it runs under `/games/`
+as it would at a root. `vercel.json` allows `'self'` in `frame-ancestors`, so
+the Games tab can embed it on the web as well as in Discord.
+
+`npm run dev` can't show it: the Vite dev server answers `/games/` with the
+app's own `index.html`. Check it with `npm run build` and a static server
+over `dist/`, which is how Vercel serves it.
+
+Not automated yet: someone has to run the steps above and commit
+`public/games/`. The planned route is for the `game-client` workflow to
+publish the player app as a GitHub release asset, and for the Vercel build to
+fetch that pinned release into `public/games/` before `vite build`.
 
 ## The client patch (`game-client/patches/0001-…`)
 
@@ -104,8 +131,7 @@ WebSocket rewrite in the client's own page).
 
 | Prefix | Target |
 | --- | --- |
-| `/` | The Nightspire (Vercel) |
-| `/play` | the client build host |
+| `/` | `play.awizard.dev` (The Nightspire, and the client at `/games`) |
 | `/hub/bow` | `hub.awizard.dev` (HTTP and WebSocket) |
 | `/walletconnect` | `relay.walletconnect.org` (already in use) |
 
