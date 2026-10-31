@@ -9,7 +9,7 @@
 
 ### 🎲 Game Hub (chia-gaming)
 - [x] Games tab: catalog, hub picker, embedded client, pinned revision shown (`src/components/HubTab.tsx`, `src/lib/gameHub.ts`, `src/store/hubStore.ts`)
-- [ ] Deploy the Nightspire hub (upstream `hub-service` at `76f0fb8c`) at `hub.awizard.dev`
+- [ ] Deploy the Nightspire hub on Railway at `hub.awizard.dev` (`hub/README.md`; image and fetch tested locally)
 - [x] Client served at `/games`: the `game-client` workflow publishes a release, the Vercel build fetches it (docs/GAME_HUB.md)
 - [ ] Add the Vercel deploy hook as repo secret `VERCEL_DEPLOY_HOOK_URL`; set `VITE_GAME_CLIENT_URL=https://play.awizard.dev/games`
 - [x] Client patch: `?hub=` prefills the hub picker (`game-client/patches/`)

@@ -44,15 +44,9 @@ hubs with a Discord path are selectable; Discord blocks every other origin.
 
 ## Running a hub
 
-```bash
-git clone https://github.com/Chia-Network/chia-gaming && cd chia-gaming
-git checkout 76f0fb8c646e7030c43d2f0a89dd4743445c173b
-# follow upstream DEVELOPMENT.md to build hub/hub-service and hub/hub-frontend
-node hub/hub-service/dist/index-rollup.cjs --self https://hub.awizard.dev --dir hub/hub-frontend/dist
-```
-
-Put it behind TLS. The hub never sees keys and never signs; it only matches
-players and relays frames.
+See `hub/README.md`. Railway, with `hub/Dockerfile` and `hub/railway.json`, is
+the recommended host. The image takes `hub.tgz` from the same release the
+site uses for `/games`, so the hub and the client always match.
 
 ## Building the client and hub
 
