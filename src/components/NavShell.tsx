@@ -19,9 +19,6 @@ interface NavShellProps {
 
 const tabs: { id: Page; icon: string; label: string }[] = [
   { id: 'hub',     icon: '🎲',  label: 'Games'   },
-  { id: 'wallet',  icon: '🔮',  label: 'Fighters' },
-  { id: 'chat',    icon: '🧙',  label: 'Wizard'  },
-  { id: 'chellyz', icon: '🌸',  label: 'Chellyz' },
 ];
 
 export default function NavShell({ activePage, onNavigate, user, children }: NavShellProps) {
