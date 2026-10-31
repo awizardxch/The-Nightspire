@@ -1,0 +1,12 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "hub/Dockerfile",
+    "watchPatterns": ["hub/**", "game-client/build.sh", "game-client/patches/**", "scripts/game-client-tag.mjs"]
+  },
+  "deploy": {
+    "healthcheckPath": "/build-meta.json",
+    "restartPolicyType": "ON_FAILURE"
+  }
+}
